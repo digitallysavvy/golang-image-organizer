@@ -9,26 +9,46 @@ BINARIES_DIR="binaries"
 
 echo "🔧 Setting up ExifTool binaries for embedding..."
 
-# Clean up and create binaries directory
-rm -rf "$BINARIES_DIR"
+# Create binaries directory (don't remove if it exists to avoid permission issues)
 mkdir -p "$BINARIES_DIR"
 cd "$BINARIES_DIR"
+
+# Clean up any existing files more carefully
+rm -f *.zip *.tar.gz exiftool-* 2>/dev/null || true
 
 # Download Windows binaries (standalone executables)
 echo "📥 Downloading Windows ExifTool binaries..."
 
 echo "  - Downloading 64-bit Windows version..."
-curl -L "https://exiftool.org/exiftool-${EXIFTOOL_VERSION}_64.zip" -o "exiftool-windows-64.zip"
-unzip -q "exiftool-windows-64.zip"
+curl -L "https://exiftool.org/exiftool-${EXIFTOOL_VERSION}_64.zip" -o "exiftool-windows-64.zip" || {
+    echo "Error downloading Windows 64-bit version"
+    exit 1
+}
+unzip -o -q "exiftool-windows-64.zip" || {
+    echo "Error extracting Windows 64-bit version"
+    exit 1
+}
 
 echo "  - Downloading 32-bit Windows version..."
-curl -L "https://exiftool.org/exiftool-${EXIFTOOL_VERSION}_32.zip" -o "exiftool-windows-32.zip"
-unzip -q "exiftool-windows-32.zip"
+curl -L "https://exiftool.org/exiftool-${EXIFTOOL_VERSION}_32.zip" -o "exiftool-windows-32.zip" || {
+    echo "Error downloading Windows 32-bit version"
+    exit 1
+}
+unzip -o -q "exiftool-windows-32.zip" || {
+    echo "Error extracting Windows 32-bit version"
+    exit 1
+}
 
 # Extract Windows perl executables
 echo "📦 Extracting Windows executables..."
-cp "exiftool-${EXIFTOOL_VERSION}_64/exiftool_files/perl.exe" "exiftool-windows-amd64.exe"
-cp "exiftool-${EXIFTOOL_VERSION}_32/exiftool_files/perl.exe" "exiftool-windows-386.exe"
+cp "exiftool-${EXIFTOOL_VERSION}_64/exiftool_files/perl.exe" "exiftool-windows-amd64.exe" || {
+    echo "Error copying Windows 64-bit executable"
+    exit 1
+}
+cp "exiftool-${EXIFTOOL_VERSION}_32/exiftool_files/perl.exe" "exiftool-windows-386.exe" || {
+    echo "Error copying Windows 32-bit executable"
+    exit 1
+}
 
 # Download macOS/Linux source version for Unix platforms
 echo "📥 Downloading Unix ExifTool source..."
@@ -151,7 +171,7 @@ chmod +x exiftool-*
 
 # Clean up temporary files (but ignore permission errors)
 echo "🧹 Cleaning up..."
-rm -f *.zip *.tar.gz
+rm -f *.zip *.tar.gz 2>/dev/null || true
 rm -rf "exiftool-${EXIFTOOL_VERSION}_"* "Image-ExifTool-${EXIFTOOL_VERSION}" 2>/dev/null || true
 
 echo "✅ ExifTool binaries are ready!"

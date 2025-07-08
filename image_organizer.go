@@ -762,6 +762,73 @@ func setupEmbeddedExifTool() error {
 		return nil
 	}
 	
+	// Check common installation locations for each platform
+	// Get the directory where the current executable is located
+	exePath, err := os.Executable()
+	var exeDir string
+	if err == nil {
+		exeDir = filepath.Dir(exePath)
+	}
+	
+	var commonPaths []string
+	
+	switch runtime.GOOS {
+	case "windows":
+		commonPaths = []string{
+			"exiftool.exe",                                    // Current working directory
+			"C:\\Program Files\\ExifTool\\exiftool.exe",      // Standard install location
+			"C:\\Program Files (x86)\\ExifTool\\exiftool.exe", // 32-bit on 64-bit Windows
+			"C:\\exiftool\\exiftool.exe",                      // Portable install
+			"C:\\tools\\exiftool.exe",                         // Common tools directory
+		}
+		
+		// Add executable directory path if we got it successfully
+		if exeDir != "" {
+			executableDirPath := filepath.Join(exeDir, "exiftool.exe")
+			// Insert at the beginning to check executable directory first
+			commonPaths = append([]string{executableDirPath}, commonPaths...)
+		}
+		
+	case "darwin":
+		commonPaths = []string{
+			"exiftool",                           // Current working directory
+			"/usr/local/bin/exiftool",           // Homebrew install
+			"/opt/homebrew/bin/exiftool",        // Apple Silicon Homebrew
+			"/usr/bin/exiftool",                 // System install
+		}
+		
+		// Add executable directory path if we got it successfully
+		if exeDir != "" {
+			executableDirPath := filepath.Join(exeDir, "exiftool")
+			commonPaths = append([]string{executableDirPath}, commonPaths...)
+		}
+		
+	case "linux":
+		commonPaths = []string{
+			"exiftool",                    // Current working directory
+			"/usr/bin/exiftool",          // System package install
+			"/usr/local/bin/exiftool",    // Manual install
+		}
+		
+		// Add executable directory path if we got it successfully
+		if exeDir != "" {
+			executableDirPath := filepath.Join(exeDir, "exiftool")
+			commonPaths = append([]string{executableDirPath}, commonPaths...)
+		}
+	}
+	
+	// Check all the common paths
+	for _, path := range commonPaths {
+		if _, err := os.Stat(path); err == nil {
+			// Test if it actually works
+			cmd := exec.Command(path, "-ver")
+			if err := cmd.Run(); err == nil {
+				exiftoolPath = path
+				return nil
+			}
+		}
+	}
+	
 	// Determine the correct binary for this platform
 	var binaryName string
 	switch runtime.GOOS {

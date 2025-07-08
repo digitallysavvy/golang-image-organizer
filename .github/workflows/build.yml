@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -52,6 +54,12 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+
+      - name: Clean binaries directory
+        run: |
+          rm -rf binaries
+          mkdir -p binaries
+        shell: bash
 
       - name: Download ExifTool binaries
         run: |
@@ -131,6 +139,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
