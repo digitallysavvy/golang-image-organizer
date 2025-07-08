@@ -2,6 +2,16 @@
 
 A desktop application built with Go and Fyne that organizes images and videos by date and location using metadata.
 
+## 🚀 Quick Start
+
+1. **Download** the latest release for your platform from [Releases](../../releases)
+2. **Extract** the zip file
+3. **Optional**: Install ExifTool for enhanced video/HEIC support
+   - Windows: Download from https://exiftool.org/
+   - macOS: `brew install exiftool`
+   - Linux: `sudo apt-get install libimage-exiftool-perl`
+4. **Run** the application and start organizing your media!
+
 ## Features
 
 - **Date-based Organization**: Automatically organizes images and videos by their capture date
@@ -9,6 +19,7 @@ A desktop application built with Go and Fyne that organizes images and videos by
 - **Metadata Extraction**: Reads date and GPS information from image EXIF and video metadata
 - **Modern GUI**: Clean, cross-platform interface built with Fyne
 - **Progress Tracking**: Real-time progress bar and detailed logging
+- **Auto File Explorer**: Automatically opens output folder when organization is complete
 - **Flexible Output**: Customizable folder structure and naming
 
 ## Supported Media Formats
@@ -55,46 +66,9 @@ The application supports a wide range of image and video formats:
 
 ## Enhanced Metadata Support for Videos and HEIC/HEIF
 
-For comprehensive metadata extraction from video files and better GPS data extraction from HEIC/HEIF files, you have these options:
+For comprehensive metadata extraction from video files and GPS data extraction from HEIC/HEIF files, you need to install ExifTool on your system:
 
-### Option 1: Embedded ExifTool
-
-**This project includes embedded ExifTool:**
-
-1. **Build the application:**
-
-   ```bash
-   go build -o image-organizer image_organizer.go
-   ```
-
-2. **Distribute the single executable** - ExifTool is included!
-
-**Benefits:**
-
-- ✅ Users don't need to install ExifTool separately
-- ✅ Single executable file distribution
-- ✅ Works out-of-the-box on all platforms
-- ✅ Perfect HEIC/HEIF GPS extraction
-- ✅ Full video metadata support (creation date, GPS, etc.)
-
-### Option 2: Re-download ExifTool (Optional)
-
-**Only run this if you want to update ExifTool to a newer version:**
-
-1. **Download ExifTool binaries:**
-
-   ```bash
-   ./download_exiftool.sh
-   ```
-
-2. **Build with updated ExifTool:**
-   ```bash
-   go build -o image-organizer image_organizer.go
-   ```
-
-### Option 3: System ExifTool Installation (Alternative)
-
-**If you prefer using system ExifTool instead of embedded:**
+### ExifTool Installation (Required for Enhanced Features)
 
 #### macOS
 
@@ -112,11 +86,28 @@ sudo apt-get install libimage-exiftool-perl
 
 Download from: https://exiftool.org/
 
-When ExifTool is available (either embedded or system-installed), the application will automatically use it to:
+When ExifTool is installed on your system, the application will automatically detect and use it to:
 
 - Extract GPS coordinates and creation dates from video files
 - Extract GPS coordinates from HEIC/HEIF files
-- Provide much better metadata extraction than fallback methods
+- Provide comprehensive metadata extraction for all supported formats
+
+### What happens without ExifTool?
+
+The application will still work perfectly for most image formats! Here's what you get:
+
+**✅ With ExifTool (Recommended):**
+
+- Full video metadata extraction (dates, GPS)
+- HEIC/HEIF GPS coordinates
+- Enhanced metadata for all formats
+
+**⚠️ Without ExifTool:**
+
+- Standard image formats work perfectly (JPEG, PNG, TIFF, etc.)
+- Videos and HEIC files use filename timestamps or file dates
+- Limited GPS extraction for HEIC/HEIF files
+- App will show helpful installation instructions
 
 ## Date Extraction Methods
 
@@ -148,12 +139,32 @@ This multi-layered approach ensures accurate organization even for files without
 
 ## Installation
 
-### Prerequisites
+### Option 1: Download Pre-built Release (Recommended)
+
+1. **Download the latest release** from the [Releases page](../../releases)
+
+   - Windows: `media-organizer-windows-amd64.zip`
+   - macOS: `media-organizer-macos-universal.zip` (works on both Intel and Apple Silicon)
+   - Linux: Build from source (see below)
+
+2. **Extract the zip file** and run the executable
+
+3. **(Optional but recommended) Install ExifTool** for enhanced video and HEIC support:
+
+   - **Windows**: Download from https://exiftool.org/ and add to PATH
+   - **macOS**: `brew install exiftool`
+   - **Linux**: `sudo apt-get install libimage-exiftool-perl`
+
+4. **Run the application** - Double-click the executable or run from terminal
+
+### Option 2: Build from Source
+
+#### Prerequisites
 
 - Go 1.21 or later
 - Git
 
-### Building from Source
+#### Steps
 
 1. Clone or download this repository
 2. Navigate to the project directory
@@ -161,28 +172,43 @@ This multi-layered approach ensures accurate organization even for files without
    ```bash
    go mod tidy
    ```
-4. Build the application:
+4. (Optional but recommended) Install ExifTool for enhanced metadata support:
+
+   - **macOS**: `brew install exiftool`
+   - **Windows**: Download from https://exiftool.org/
+   - **Linux**: `sudo apt-get install libimage-exiftool-perl`
+
+5. Build the application:
 
    ```bash
-   go build -o image-organizer image_organizer.go
+   go build -o media-organizer image_organizer.go
    ```
 
-   **Note**: On macOS, you may see a harmless linker warning about duplicate libraries. This is normal for Fyne applications. To suppress it:
+6. Run the application:
 
    ```bash
-   go build -ldflags="-w" -o image-organizer image_organizer.go
+   ./media-organizer
    ```
 
-### Running the Application
+   Or run directly with Go:
+
+   ```bash
+   go run image_organizer.go
+   ```
+
+#### Cross-platform Building
+
+To create executables for different platforms:
 
 ```bash
-./image-organizer
-```
+# For Windows (from any platform)
+GOOS=windows GOARCH=amd64 go build -o media-organizer.exe image_organizer.go
 
-Or run directly with Go:
+# For macOS (from any platform)
+GOOS=darwin GOARCH=amd64 go build -o media-organizer-mac image_organizer.go
 
-```bash
-go run image_organizer.go
+# For Linux (from any platform)
+GOOS=linux GOARCH=amd64 go build -o media-organizer-linux image_organizer.go
 ```
 
 ## Usage
@@ -193,6 +219,7 @@ go run image_organizer.go
    - Lower values = Group closer locations together
    - Higher values = More separate location groups
 4. **Start Organizing**: Click the "Start Organizing" button to begin the process
+5. **View Results**: When complete, the output folder will automatically open in your file explorer
 
 ## Folder Structure
 
@@ -235,52 +262,75 @@ The location sensitivity setting determines how close GPS coordinates need to be
 ### Project Structure
 
 ```
-image-organizer/
-├── image_organizer.go    # Main application code
-├── go.mod               # Go module file
-├── go.sum               # Dependency checksums
-├── README.md            # This file
-└── .gitignore           # Git ignore rules
+media-organizer/
+├── image_organizer.go      # Main application code
+├── go.mod                  # Go module file
+├── go.sum                  # Dependency checksums
+├── README.md               # This file
+├── .gitignore              # Git ignore rules
+└── .github/workflows/      # GitHub Actions for automated builds
+    └── build.yml
 ```
 
-### Building for Distribution
+### Key Features
 
-To create standalone executables for different platforms:
+- **Cross-platform File Explorer Integration**: After organizing your media, the application automatically opens your system's file explorer to the output folder
+  - Windows: Opens Windows Explorer
+  - macOS: Opens Finder
+  - Linux: Supports multiple file managers (Nautilus, Dolphin, Thunar, etc.)
 
-```bash
-# For macOS
-GOOS=darwin GOARCH=amd64 go build -o image-organizer-mac image_organizer.go
+### Contributing
 
-# For Windows
-GOOS=windows GOARCH=amd64 go build -o image-organizer.exe image_organizer.go
+Contributions are welcome! Please feel free to:
 
-# For Linux
-GOOS=linux GOARCH=amd64 go build -o image-organizer-linux image_organizer.go
-```
+- Submit bug reports and feature requests via Issues
+- Fork the repository and submit Pull Requests
+- Improve documentation
+- Add support for additional file formats
 
 ## License
 
 This project is open source. Feel free to use, modify, and distribute as needed.
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues and pull requests.
-
 ## Troubleshooting
 
 ### Common Issues
 
-1. **No EXIF data found**: Some images may not contain EXIF data. The application will use file modification time as fallback.
+1. **"ExifTool not found" warning**
 
-2. **Permission errors**: Ensure the application has read access to source folders and write access to output folders.
+   - **Solution**: Install ExifTool for your platform (see installation instructions above)
+   - **Impact**: App still works, but with limited video/HEIC metadata extraction
 
-3. **Large file processing**: For very large image collections, the application may take some time to process. Progress is shown in the UI.
+2. **No GPS coordinates extracted**
+
+   - **Cause**: Images may not contain GPS data, or ExifTool isn't installed
+   - **Solution**: Ensure location services were enabled when photos were taken, install ExifTool
+
+3. **Videos not organized by date**
+
+   - **Cause**: ExifTool not installed
+   - **Solution**: Install ExifTool to enable video metadata extraction
+
+4. **Permission errors**
+
+   - **Solution**: Ensure the application has read access to source folders and write access to output folders
+   - **macOS**: You may need to grant folder access permissions
+
+5. **Large collection processing is slow**
+
+   - **Normal**: For very large media collections, processing takes time
+   - **Monitor**: Progress is shown in the UI with real-time updates
+
+6. **File explorer doesn't open automatically**
+   - **Cause**: System permissions or unsupported file manager
+   - **Solution**: Check the log for error messages; you can manually navigate to the output folder
 
 ### Getting Help
 
 If you encounter issues:
 
-1. Check the log output in the application
-2. Ensure your images contain EXIF data
-3. Verify folder permissions
-4. Try with a smaller set of images first
+1. Check the log output in the application for specific error messages
+2. Verify ExifTool installation: open terminal and type `exiftool -ver`
+3. Test with a small folder first to isolate issues
+4. Check folder permissions
+5. Submit an issue on GitHub with log output and system details

@@ -55,18 +55,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Clean binaries directory
-        run: |
-          rm -rf binaries
-          mkdir -p binaries
-        shell: bash
-
-      - name: Download ExifTool binaries
-        run: |
-          chmod +x download_exiftool.sh
-          ./download_exiftool.sh
-        shell: bash
-
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-intel' || matrix.os == 'macos-apple-silicon'
         run: |
@@ -96,24 +84,35 @@ jobs:
       - name: Create README for release
         run: |
           cat > release/README.txt << 'EOF'
-          Media Organizer - Built with ExifTool Embedded
-          ============================================
+          Media Organizer - Organize Images and Videos by Date and Location
+          ================================================================
 
           This application organizes images and videos by date and location using metadata.
 
           Features:
           - Automatic date extraction from EXIF data and filenames
           - GPS location clustering for HEIC/HEIF files and videos
-          - Cross-platform support (Windows, macOS)
-          - No additional software installation required
+          - Cross-platform support (Windows, macOS, Linux)
+          - Smart filename timestamp parsing
           - Full video support with metadata extraction
 
+          IMPORTANT: Enhanced Metadata Support
+          ====================================
+          For full video and HEIC GPS support, install ExifTool:
+
+          Windows: Download from https://exiftool.org/
+          macOS:   brew install exiftool
+          Linux:   sudo apt-get install libimage-exiftool-perl
+
+          Without ExifTool, the app will still work but with limited metadata extraction.
+
           Usage:
-          1. Run the application
-          2. Select source folder containing images and videos
-          3. Select output folder for organized media files
-          4. Adjust location sensitivity if needed
-          5. Click "Start Organizing"
+          1. (Optional but recommended) Install ExifTool for enhanced features
+          2. Run the application
+          3. Select source folder containing images and videos
+          4. Select output folder for organized media files
+          5. Adjust location sensitivity if needed
+          6. Click "Start Organizing"
 
           The application will organize media files into folders by:
           Year/Month-Day/Location/
@@ -187,12 +186,12 @@ jobs:
 
           ### Features
           - 🖼️ **Smart Media Organization**: Automatically organizes images and videos by date and location
-          - 📱 **iPhone HEIC Support**: Full GPS extraction from iPhone HEIC/HEIF images  
+          - 📱 **iPhone HEIC Support**: GPS extraction from iPhone HEIC/HEIF images (requires ExifTool)
           - 🗂️ **Intelligent Clustering**: Groups nearby photos using configurable sensitivity
           - 📅 **Multiple Date Sources**: Extracts dates from EXIF, filenames, or file timestamps
-          - 🚀 **Embedded ExifTool**: No additional software installation required
-          - 🌍 **Cross-Platform**: Works on Windows, macOS (Intel & Apple Silicon)
-          - 🎥 **Full Video Support**: Organizes videos by date and location
+          - 🌍 **Cross-Platform**: Works on Windows, macOS (Intel & Apple Silicon), and Linux
+          - 🎥 **Full Video Support**: Organizes videos by date and location (requires ExifTool)
+          - 🚀 **Simple & Fast**: Lightweight application with no complex dependencies
 
           ### Supported Formats
           - **Images**: JPEG, PNG, TIFF, BMP, GIF, HEIC/HEIF, RAW (DNG, CR2, NEF, ARW), AVIF, WebP
@@ -210,7 +209,11 @@ jobs:
           ### Installation
           1. Download the appropriate file for your system
           2. Extract the zip file
-          3. Run the executable - no installation needed!
+          3. (Optional but recommended) Install ExifTool for enhanced features:
+             - **Windows**: Download from https://exiftool.org/
+             - **macOS**: `brew install exiftool`
+             - **Linux**: `sudo apt-get install libimage-exiftool-perl`
+          4. Run the executable - no installation needed!
 
           ### Usage
           1. Launch the application
