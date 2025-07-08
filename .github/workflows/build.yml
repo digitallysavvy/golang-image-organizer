@@ -1,0 +1,228 @@
+name: Build Image Organizer
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: windows
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+            extension: .exe
+            artifact_name: image-organizer-windows-amd64.exe
+          - os: macos-intel
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            extension: ""
+            artifact_name: image-organizer-macos-intel
+          - os: macos-apple-silicon
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            extension: ""
+            artifact_name: image-organizer-macos-apple-silicon
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download ExifTool binaries
+        run: |
+          chmod +x download_exiftool.sh
+          ./download_exiftool.sh
+        shell: bash
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-intel' || matrix.os == 'macos-apple-silicon'
+        run: |
+          # Install dependencies for Fyne on macOS
+          # No additional dependencies needed as Fyne handles this
+
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          # Install dependencies for Fyne on Windows
+          # No additional dependencies needed as Fyne handles this
+
+      - name: Build application
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          go build -ldflags="-w -s" -o image-organizer${{ matrix.extension }} image_organizer.go
+
+      - name: Create release directory
+        run: |
+          mkdir -p release
+          cp image-organizer${{ matrix.extension }} release/${{ matrix.artifact_name }}
+        shell: bash
+
+      - name: Create README for release
+        run: |
+          cat > release/README.txt << 'EOF'
+          Image Organizer - Built with ExifTool Embedded
+          ============================================
+
+          This application organizes images by date and location using EXIF data.
+
+          Features:
+          - Automatic date extraction from EXIF data and filenames
+          - GPS location clustering for HEIC/HEIF files
+          - Cross-platform support (Windows, macOS)
+          - No additional software installation required
+
+          Usage:
+          1. Run the application
+          2. Select source folder containing images
+          3. Select output folder for organized images
+          4. Adjust location sensitivity if needed
+          5. Click "Start Organizing"
+
+          The application will organize images into folders by:
+          Year/Month-Day/Location/
+
+          Supported formats:
+          - JPEG, PNG, TIFF, BMP, GIF
+          - HEIC/HEIF (iPhone images with GPS support)
+          - RAW formats (DNG, CR2, NEF, ARW)
+          - AVIF, WebP
+
+          Build: ${{ github.sha }}
+          Date: ${{ github.run_id }}
+          EOF
+        shell: bash
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release/
+          retention-days: 30
+
+  create-release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          # Copy and rename artifacts
+          cp artifacts/image-organizer-windows-amd64.exe/image-organizer-windows-amd64.exe release-assets/
+          cp artifacts/image-organizer-macos-intel/image-organizer-macos-intel release-assets/
+          cp artifacts/image-organizer-macos-apple-silicon/image-organizer-macos-apple-silicon release-assets/
+
+          # Create zip files for better distribution
+          cd release-assets
+
+          # Windows zip
+          zip -r image-organizer-windows-amd64.zip image-organizer-windows-amd64.exe ../artifacts/image-organizer-windows-amd64.exe/README.txt
+
+          # macOS Intel zip
+          zip -r image-organizer-macos-intel.zip image-organizer-macos-intel ../artifacts/image-organizer-macos-intel/README.txt
+
+          # macOS Apple Silicon zip  
+          zip -r image-organizer-macos-apple-silicon.zip image-organizer-macos-apple-silicon ../artifacts/image-organizer-macos-apple-silicon/README.txt
+
+          # Create universal macOS binary (combine Intel and Apple Silicon)
+          lipo -create -output image-organizer-macos-universal \
+            image-organizer-macos-intel image-organizer-macos-apple-silicon 2>/dev/null || \
+            cp image-organizer-macos-intel image-organizer-macos-universal
+
+          zip -r image-organizer-macos-universal.zip image-organizer-macos-universal ../artifacts/image-organizer-macos-intel/README.txt
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## Image Organizer Release
+
+          ### Features
+          - 🖼️ **Smart Image Organization**: Automatically organizes images by date and location
+          - 📱 **iPhone HEIC Support**: Full GPS extraction from iPhone HEIC/HEIF images  
+          - 🗂️ **Intelligent Clustering**: Groups nearby photos using configurable sensitivity
+          - 📅 **Multiple Date Sources**: Extracts dates from EXIF, filenames, or file timestamps
+          - 🚀 **Embedded ExifTool**: No additional software installation required
+          - 🌍 **Cross-Platform**: Works on Windows, macOS (Intel & Apple Silicon)
+
+          ### Supported Formats
+          - **Standard**: JPEG, PNG, TIFF, BMP, GIF
+          - **Modern**: HEIC, HEIF, AVIF, WebP
+          - **RAW**: DNG, CR2, NEF, ARW
+
+          ### Downloads
+
+          Choose the appropriate version for your system:
+
+          - **Windows (64-bit)**: `image-organizer-windows-amd64.zip`
+          - **macOS (Intel)**: `image-organizer-macos-intel.zip`  
+          - **macOS (Apple Silicon)**: `image-organizer-macos-apple-silicon.zip`
+          - **macOS (Universal)**: `image-organizer-macos-universal.zip` *(recommended for macOS)*
+
+          ### Installation
+          1. Download the appropriate file for your system
+          2. Extract the zip file
+          3. Run the executable - no installation needed!
+
+          ### Usage
+          1. Launch the application
+          2. Select your source folder containing images
+          3. Choose an output folder for organized images
+          4. Adjust location sensitivity if needed (lower = group closer locations)
+          5. Click "Start Organizing"
+
+          Images will be organized into: `Year/Month-Day/Location/`
+
+          Built with ❤️ using Go and Fyne UI framework.
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release-assets/*.zip
+            release-assets/image-organizer-*
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
