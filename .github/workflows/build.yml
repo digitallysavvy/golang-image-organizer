@@ -1,4 +1,4 @@
-name: Build Image Organizer
+name: Build Media Organizer
 
 on:
   push:
@@ -20,19 +20,19 @@ jobs:
             goos: windows
             goarch: amd64
             extension: .exe
-            artifact_name: image-organizer-windows-amd64.exe
+            artifact_name: media-organizer-windows-amd64.exe
           - os: macos-intel
             runner: macos-latest
             goos: darwin
             goarch: amd64
             extension: ""
-            artifact_name: image-organizer-macos-intel
+            artifact_name: media-organizer-macos-intel
           - os: macos-apple-silicon
             runner: macos-latest
             goos: darwin
             goarch: arm64
             extension: ""
-            artifact_name: image-organizer-macos-apple-silicon
+            artifact_name: media-organizer-macos-apple-silicon
 
     steps:
       - name: Checkout code
@@ -77,43 +77,42 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
-          go build -ldflags="-w -s" -o image-organizer${{ matrix.extension }} image_organizer.go
+          go build -ldflags="-w -s" -o media-organizer${{ matrix.extension }} image_organizer.go
 
       - name: Create release directory
         run: |
           mkdir -p release
-          cp image-organizer${{ matrix.extension }} release/${{ matrix.artifact_name }}
+          cp media-organizer${{ matrix.extension }} release/${{ matrix.artifact_name }}
         shell: bash
 
       - name: Create README for release
         run: |
           cat > release/README.txt << 'EOF'
-          Image Organizer - Built with ExifTool Embedded
+          Media Organizer - Built with ExifTool Embedded
           ============================================
 
-          This application organizes images by date and location using EXIF data.
+          This application organizes images and videos by date and location using metadata.
 
           Features:
           - Automatic date extraction from EXIF data and filenames
-          - GPS location clustering for HEIC/HEIF files
+          - GPS location clustering for HEIC/HEIF files and videos
           - Cross-platform support (Windows, macOS)
           - No additional software installation required
+          - Full video support with metadata extraction
 
           Usage:
           1. Run the application
-          2. Select source folder containing images
-          3. Select output folder for organized images
+          2. Select source folder containing images and videos
+          3. Select output folder for organized media files
           4. Adjust location sensitivity if needed
           5. Click "Start Organizing"
 
-          The application will organize images into folders by:
+          The application will organize media files into folders by:
           Year/Month-Day/Location/
 
           Supported formats:
-          - JPEG, PNG, TIFF, BMP, GIF
-          - HEIC/HEIF (iPhone images with GPS support)
-          - RAW formats (DNG, CR2, NEF, ARW)
-          - AVIF, WebP
+          Images: JPEG, PNG, TIFF, BMP, GIF, HEIC/HEIF, RAW (DNG, CR2, NEF, ARW), AVIF, WebP
+          Videos: MOV, MP4, M4V, AVI, MKV, WMV, FLV, WebM, 3GP, MTS, M2TS
 
           Build: ${{ github.sha }}
           Date: ${{ github.run_id }}
@@ -147,56 +146,56 @@ jobs:
           mkdir -p release-assets
 
           # Copy and rename artifacts
-          cp artifacts/image-organizer-windows-amd64.exe/image-organizer-windows-amd64.exe release-assets/
-          cp artifacts/image-organizer-macos-intel/image-organizer-macos-intel release-assets/
-          cp artifacts/image-organizer-macos-apple-silicon/image-organizer-macos-apple-silicon release-assets/
+          cp artifacts/media-organizer-windows-amd64.exe/media-organizer-windows-amd64.exe release-assets/
+          cp artifacts/media-organizer-macos-intel/media-organizer-macos-intel release-assets/
+          cp artifacts/media-organizer-macos-apple-silicon/media-organizer-macos-apple-silicon release-assets/
 
           # Create zip files for better distribution
           cd release-assets
 
           # Windows zip
-          zip -r image-organizer-windows-amd64.zip image-organizer-windows-amd64.exe ../artifacts/image-organizer-windows-amd64.exe/README.txt
+          zip -r media-organizer-windows-amd64.zip media-organizer-windows-amd64.exe ../artifacts/media-organizer-windows-amd64.exe/README.txt
 
           # macOS Intel zip
-          zip -r image-organizer-macos-intel.zip image-organizer-macos-intel ../artifacts/image-organizer-macos-intel/README.txt
+          zip -r media-organizer-macos-intel.zip media-organizer-macos-intel ../artifacts/media-organizer-macos-intel/README.txt
 
           # macOS Apple Silicon zip  
-          zip -r image-organizer-macos-apple-silicon.zip image-organizer-macos-apple-silicon ../artifacts/image-organizer-macos-apple-silicon/README.txt
+          zip -r media-organizer-macos-apple-silicon.zip media-organizer-macos-apple-silicon ../artifacts/media-organizer-macos-apple-silicon/README.txt
 
           # Create universal macOS binary (combine Intel and Apple Silicon)
-          lipo -create -output image-organizer-macos-universal \
-            image-organizer-macos-intel image-organizer-macos-apple-silicon 2>/dev/null || \
-            cp image-organizer-macos-intel image-organizer-macos-universal
+          lipo -create -output media-organizer-macos-universal \
+            media-organizer-macos-intel media-organizer-macos-apple-silicon 2>/dev/null || \
+            cp media-organizer-macos-intel media-organizer-macos-universal
 
-          zip -r image-organizer-macos-universal.zip image-organizer-macos-universal ../artifacts/image-organizer-macos-intel/README.txt
+          zip -r media-organizer-macos-universal.zip media-organizer-macos-universal ../artifacts/media-organizer-macos-intel/README.txt
 
       - name: Generate release notes
         id: release_notes
         run: |
           cat > release_notes.md << 'EOF'
-          ## Image Organizer Release
+          ## Media Organizer Release
 
           ### Features
-          - 🖼️ **Smart Image Organization**: Automatically organizes images by date and location
+          - 🖼️ **Smart Media Organization**: Automatically organizes images and videos by date and location
           - 📱 **iPhone HEIC Support**: Full GPS extraction from iPhone HEIC/HEIF images  
           - 🗂️ **Intelligent Clustering**: Groups nearby photos using configurable sensitivity
           - 📅 **Multiple Date Sources**: Extracts dates from EXIF, filenames, or file timestamps
           - 🚀 **Embedded ExifTool**: No additional software installation required
           - 🌍 **Cross-Platform**: Works on Windows, macOS (Intel & Apple Silicon)
+          - 🎥 **Full Video Support**: Organizes videos by date and location
 
           ### Supported Formats
-          - **Standard**: JPEG, PNG, TIFF, BMP, GIF
-          - **Modern**: HEIC, HEIF, AVIF, WebP
-          - **RAW**: DNG, CR2, NEF, ARW
+          - **Images**: JPEG, PNG, TIFF, BMP, GIF, HEIC/HEIF, RAW (DNG, CR2, NEF, ARW), AVIF, WebP
+          - **Videos**: MOV, MP4, M4V, AVI, MKV, WMV, FLV, WebM, 3GP, MTS, M2TS
 
           ### Downloads
 
           Choose the appropriate version for your system:
 
-          - **Windows (64-bit)**: `image-organizer-windows-amd64.zip`
-          - **macOS (Intel)**: `image-organizer-macos-intel.zip`  
-          - **macOS (Apple Silicon)**: `image-organizer-macos-apple-silicon.zip`
-          - **macOS (Universal)**: `image-organizer-macos-universal.zip` *(recommended for macOS)*
+          - **Windows (64-bit)**: `media-organizer-windows-amd64.zip`
+          - **macOS (Intel)**: `media-organizer-macos-intel.zip`  
+          - **macOS (Apple Silicon)**: `media-organizer-macos-apple-silicon.zip`
+          - **macOS (Universal)**: `media-organizer-macos-universal.zip` *(recommended for macOS)*
 
           ### Installation
           1. Download the appropriate file for your system
@@ -205,12 +204,12 @@ jobs:
 
           ### Usage
           1. Launch the application
-          2. Select your source folder containing images
-          3. Choose an output folder for organized images
+          2. Select your source folder containing images and videos
+          3. Choose an output folder for organized media files
           4. Adjust location sensitivity if needed (lower = group closer locations)
           5. Click "Start Organizing"
 
-          Images will be organized into: `Year/Month-Day/Location/`
+          Media files will be organized into: `Year/Month-Day/Location/`
 
           Built with ❤️ using Go and Fyne UI framework.
           EOF
@@ -220,7 +219,7 @@ jobs:
         with:
           files: |
             release-assets/*.zip
-            release-assets/image-organizer-*
+            release-assets/media-organizer-*
           body_path: release_notes.md
           draft: false
           prerelease: false
