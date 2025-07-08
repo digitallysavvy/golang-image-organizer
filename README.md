@@ -1,21 +1,35 @@
-# Image Organizer
+# Media Organizer
 
-A desktop application built with Go and Fyne that organizes images by date and location using EXIF data.
+A desktop application built with Go and Fyne that organizes images and videos by date and location using metadata.
 
 ## Features
 
-- **Date-based Organization**: Automatically organizes images by their capture date
-- **Location-based Grouping**: Groups images by GPS coordinates with configurable sensitivity
-- **EXIF Data Extraction**: Reads date and GPS information from image metadata
+- **Date-based Organization**: Automatically organizes images and videos by their capture date
+- **Location-based Grouping**: Groups media files by GPS coordinates with configurable sensitivity
+- **Metadata Extraction**: Reads date and GPS information from image EXIF and video metadata
 - **Modern GUI**: Clean, cross-platform interface built with Fyne
 - **Progress Tracking**: Real-time progress bar and detailed logging
 - **Flexible Output**: Customizable folder structure and naming
 
-## Supported Image Formats
+## Supported Media Formats
 
-The application supports a wide range of image formats:
+The application supports a wide range of image and video formats:
 
-### Standard Formats
+### Video Formats
+
+- **MOV (.mov)** - QuickTime Movie (Full metadata support)
+- **MP4 (.mp4)** - MPEG-4 Video (Full metadata support)
+- **M4V (.m4v)** - iTunes Video
+- **AVI (.avi)** - Audio Video Interleave
+- **MKV (.mkv)** - Matroska Video
+- **WMV (.wmv)** - Windows Media Video
+- **FLV (.flv)** - Flash Video
+- **WebM (.webm)** - WebM Video
+- **3GP (.3gp)** - 3GPP Video
+- **MTS (.mts)** - AVCHD Video
+- **M2TS (.m2ts)** - Blu-ray Video
+
+### Image Formats
 
 - JPEG (.jpg, .jpeg) - Full EXIF support
 - TIFF (.tiff, .tif) - Full EXIF support
@@ -37,11 +51,11 @@ The application supports a wide range of image formats:
 - NEF (.nef) - Nikon RAW
 - ARW (.arw) - Sony RAW
 
-**Note**: HEIC/HEIF files have limited EXIF extraction capabilities due to library constraints. The application will use file modification time for date organization and may not extract GPS data from these formats.
+**Note**: HEIC/HEIF files have limited EXIF extraction capabilities due to library constraints. Video files require ExifTool for metadata extraction. The application will use file modification time for date organization when metadata is not available.
 
-## Enhanced HEIC/HEIF GPS Support
+## Enhanced Metadata Support for Videos and HEIC/HEIF
 
-For better GPS data extraction from HEIC/HEIF files, you have two options:
+For comprehensive metadata extraction from video files and better GPS data extraction from HEIC/HEIF files, you have these options:
 
 ### Option 1: Embedded ExifTool
 
@@ -61,6 +75,7 @@ For better GPS data extraction from HEIC/HEIF files, you have two options:
 - ✅ Single executable file distribution
 - ✅ Works out-of-the-box on all platforms
 - ✅ Perfect HEIC/HEIF GPS extraction
+- ✅ Full video metadata support (creation date, GPS, etc.)
 
 ### Option 2: Re-download ExifTool (Optional)
 
@@ -97,16 +112,20 @@ sudo apt-get install libimage-exiftool-perl
 
 Download from: https://exiftool.org/
 
-When ExifTool is available (either embedded or system-installed), the application will automatically use it to extract GPS coordinates from HEIC/HEIF files, providing much better location data than the fallback methods.
+When ExifTool is available (either embedded or system-installed), the application will automatically use it to:
+
+- Extract GPS coordinates and creation dates from video files
+- Extract GPS coordinates from HEIC/HEIF files
+- Provide much better metadata extraction than fallback methods
 
 ## Date Extraction Methods
 
-The application uses multiple methods to determine image dates, in order of preference:
+The application uses multiple methods to determine media file dates, in order of preference:
 
-### 1. EXIF Date/Time (Most Accurate)
+### 1. Metadata Date/Time (Most Accurate)
 
-- Extracted from image metadata when available
-- Provides the actual capture time set by the camera
+- Extracted from EXIF data for images or metadata for videos when available
+- Provides the actual capture/creation time set by the camera/device
 
 ### 2. Filename Timestamp (Smart Fallback)
 
@@ -168,8 +187,8 @@ go run image_organizer.go
 
 ## Usage
 
-1. **Select Source Folder**: Choose the folder containing your images
-2. **Select Output Folder**: Choose where you want the organized images to be saved
+1. **Select Source Folder**: Choose the folder containing your images and videos
+2. **Select Output Folder**: Choose where you want the organized media files to be saved
 3. **Adjust Location Sensitivity**: Use the slider to control how close locations need to be to be grouped together
    - Lower values = Group closer locations together
    - Higher values = More separate location groups
@@ -185,12 +204,15 @@ Output Folder/
 │   ├── 01-January/
 │   │   ├── Location_1/
 │   │   │   ├── image1.jpg
-│   │   │   └── image2.jpg
+│   │   │   ├── video1.mov
+│   │   │   └── image2.heic
 │   │   └── Location_2/
-│   │       └── image3.jpg
+│   │       ├── image3.jpg
+│   │       └── video2.mp4
 │   └── 02-February/
 │       └── Location_3/
-│           └── image4.jpg
+│           ├── image4.jpg
+│           └── video3.mov
 ```
 
 ## Configuration

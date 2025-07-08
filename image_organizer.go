@@ -58,7 +58,7 @@ func main() {
 	myApp := app.New()
 	myApp.SetIcon(nil) // You can set an icon here if you have one
 	
-	myWindow := myApp.NewWindow("Image Organizer")
+	myWindow := myApp.NewWindow("Media Organizer")
 	myWindow.Resize(fyne.NewSize(800, 600))
 	
 	app := &App{
@@ -82,7 +82,7 @@ func main() {
 
 func (app *App) setupUI() {
 	// Title
-	title := widget.NewLabel("Image Organizer by Date and Location")
+	title := widget.NewLabel("Media Organizer by Date and Location")
 	title.TextStyle.Bold = true
 	
 	// Source folder selection
@@ -114,7 +114,7 @@ func (app *App) setupUI() {
 	
 	// Log output
 	app.logText = widget.NewMultiLineEntry()
-	app.logText.SetText("Ready to organize images...\n")
+	app.logText.SetText("Ready to organize media files...\n")
 	app.logText.Disable()
 	
 	// Start button
@@ -193,27 +193,27 @@ func (app *App) startOrganizing() {
 	}
 	
 	app.progressBar.Show()
-	app.logText.SetText("Starting image organization...\n")
+	app.logText.SetText("Starting media organization...\n")
 	
 	// Run organization in a goroutine to prevent UI blocking
 	go app.organizeImages()
 }
 
 func (app *App) organizeImages() {
-	// Find all image files
-	imageFiles, err := app.findImageFiles(app.sourceFolder)
+	// Find all media files
+	mediaFiles, err := app.findMediaFiles(app.sourceFolder)
 	if err != nil {
-		app.logText.SetText(app.logText.Text + fmt.Sprintf("Error finding image files: %v\n", err))
+		app.logText.SetText(app.logText.Text + fmt.Sprintf("Error finding media files: %v\n", err))
 		app.progressBar.Hide()
 		return
 	}
 	
-	app.logText.SetText(app.logText.Text + fmt.Sprintf("Found %d image files\n", len(imageFiles)))
+	app.logText.SetText(app.logText.Text + fmt.Sprintf("Found %d media files\n", len(mediaFiles)))
 	
-	// Process each image
+	// Process each media file
 	var imageInfos []*ImageInfo
-	for i, imagePath := range imageFiles {
-		app.progressBar.SetValue(float64(i) / float64(len(imageFiles)) * 0.5) // First 50% for processing
+	for i, imagePath := range mediaFiles {
+		app.progressBar.SetValue(float64(i) / float64(len(mediaFiles)) * 0.5) // First 50% for processing
 		
 		info, err := app.extractImageInfo(imagePath)
 		if err != nil {
@@ -265,7 +265,7 @@ func (app *App) organizeImages() {
 	}
 	
 	app.progressBar.SetValue(1.0)
-	app.logText.SetText(app.logText.Text + fmt.Sprintf("Organization complete! Processed %d images into %d location clusters.\n", processedImages, len(locationClusters)))
+	app.logText.SetText(app.logText.Text + fmt.Sprintf("Organization complete! Processed %d media files into %d location clusters.\n", processedImages, len(locationClusters)))
 	
 	// Hide progress bar after a delay
 	time.AfterFunc(2*time.Second, func() {
@@ -336,8 +336,8 @@ func (app *App) calculateDistance(lat1, lng1, lat2, lng2 float64) float64 {
 	return math.Sqrt(math.Pow(lat1-lat2, 2) + math.Pow(lng1-lng2, 2))
 }
 
-func (app *App) findImageFiles(root string) ([]string, error) {
-	var imageFiles []string
+func (app *App) findMediaFiles(root string) ([]string, error) {
+	var mediaFiles []string
 	imageExts := map[string]bool{
 		".jpg":   true,
 		".jpeg":  true,
@@ -354,6 +354,17 @@ func (app *App) findImageFiles(root string) ([]string, error) {
 		".cr2":   true,  // Canon RAW
 		".nef":   true,  // Nikon RAW
 		".arw":   true,  // Sony RAW
+		".mov":   true,  // QuickTime Movie
+		".mp4":   true,  // MPEG-4 Video
+		".m4v":   true,  // iTunes Video
+		".avi":   true,  // Audio Video Interleave
+		".mkv":   true,  // Matroska Video
+		".wmv":   true,  // Windows Media Video
+		".flv":   true,  // Flash Video
+		".webm":  true,  // WebM Video
+		".3gp":   true,  // 3GPP Video
+		".mts":   true,  // AVCHD Video
+		".m2ts":  true,  // Blu-ray Video
 	}
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -364,22 +375,22 @@ func (app *App) findImageFiles(root string) ([]string, error) {
 		if !info.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
 			if imageExts[ext] {
-				imageFiles = append(imageFiles, path)
+				mediaFiles = append(mediaFiles, path)
 			}
 		}
 		return nil
 	})
 
-	return imageFiles, err
+	return mediaFiles, err
 }
 
 // extractDateFromFilename attempts to extract a timestamp from the filename
-// Supports various common timestamp formats found in image filenames
+// Supports various common timestamp formats found in media filenames
 func (app *App) extractDateFromFilename(filename string) (time.Time, bool) {
 	// Remove extension for cleaner parsing
 	basename := strings.TrimSuffix(filename, filepath.Ext(filename))
 	
-	// Common timestamp patterns found in image filenames
+	// Common timestamp patterns found in media filenames
 	patterns := []struct {
 		regex  *regexp.Regexp
 		layout string
@@ -475,6 +486,34 @@ func (app *App) extractImageInfo(imagePath string) (*ImageInfo, error) {
 
 	// Check file extension to determine EXIF processing method
 	ext := strings.ToLower(filepath.Ext(imagePath))
+	
+	// Video formats - use ExifTool for metadata extraction
+	videoFormats := map[string]bool{
+		".mov": true, ".mp4": true, ".m4v": true, ".avi": true,
+		".mkv": true, ".wmv": true, ".flv": true, ".webm": true,
+		".3gp": true, ".mts": true, ".m2ts": true,
+	}
+	
+	if videoFormats[ext] {
+		app.logText.SetText(app.logText.Text + fmt.Sprintf("Processing video file: %s\n", filepath.Base(imagePath)))
+		
+		// For video files, try to extract GPS and date using exiftool
+		if lat, lng, hasGPS := app.extractHEICGPSWithExifTool(imagePath); hasGPS {
+			info.HasGPS = true
+			info.Latitude = lat
+			info.Longitude = lng
+			info.Location = app.formatLocation(lat, lng)
+		}
+		
+		// Try to extract creation date from video metadata using exiftool
+		if videoDate := app.extractVideoDateWithExifTool(imagePath); !videoDate.IsZero() {
+			info.Date = videoDate
+			app.logText.SetText(app.logText.Text + fmt.Sprintf("Extracted video date: %s -> %s\n", 
+				filepath.Base(imagePath), videoDate.Format("2006-01-02 15:04:05")))
+		}
+		
+		return info, nil
+	}
 	
 	// For HEIC/HEIF files, EXIF extraction is limited
 	if ext == ".heic" || ext == ".heif" {
@@ -594,6 +633,53 @@ func (app *App) copyFile(src, destDir string) error {
 	}
 
 	return nil
+}
+
+// extractVideoDateWithExifTool attempts to extract creation date from video files using exiftool
+func (app *App) extractVideoDateWithExifTool(videoPath string) time.Time {
+	// Use the configured exiftool path (either system or embedded)
+	if exiftoolPath == "" {
+		return time.Time{}
+	}
+	
+	cmd := exec.Command(exiftoolPath, "-CreateDate", "-MediaCreateDate", "-CreationDate", "-DateTimeOriginal", "-n", videoPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return time.Time{}
+	}
+	
+	outputStr := string(output)
+	
+	// Parse creation date from exiftool output
+	// Look for various date fields that videos might have
+	lines := strings.Split(outputStr, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if (strings.Contains(line, "Create Date") || 
+			strings.Contains(line, "Media Create Date") || 
+			strings.Contains(line, "Creation Date") || 
+			strings.Contains(line, "Date/Time Original")) && strings.Contains(line, ":") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				dateStr := strings.TrimSpace(strings.Join(parts[1:], ":"))
+				// Common video date formats
+				dateFormats := []string{
+					"2006:01:02 15:04:05",
+					"2006-01-02 15:04:05",
+					"2006:01:02T15:04:05",
+					"2006-01-02T15:04:05",
+				}
+				
+				for _, format := range dateFormats {
+					if parsedTime, err := time.Parse(format, dateStr); err == nil {
+						return parsedTime
+					}
+				}
+			}
+		}
+	}
+	
+	return time.Time{}
 }
 
 // extractHEICGPSWithExifTool attempts to extract GPS data from HEIC files using system exiftool
