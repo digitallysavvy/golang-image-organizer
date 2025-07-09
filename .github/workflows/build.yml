@@ -96,15 +96,13 @@ jobs:
 
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-intel' || matrix.os == 'macos-apple-silicon'
-        run: |
-          # Install dependencies for Fyne on macOS
-          # No additional dependencies needed as Fyne handles this
+        run: echo "Setting up macOS environment for Fyne - no additional dependencies needed"
+        shell: bash
 
       - name: Install dependencies (Windows)
         if: matrix.os == 'windows'
-        run: |
-          # Install dependencies for Fyne on Windows
-          # No additional dependencies needed as Fyne handles this
+        run: echo "Setting up Windows environment for Fyne - no additional dependencies needed"
+        shell: cmd
 
       - name: Download Go modules
         run: |
@@ -151,7 +149,7 @@ jobs:
           Without ExifTool, the app will still work but with limited metadata extraction.
 
           Usage:
-          1. (Optional but recommended) Install ExifTool for enhanced features
+          1. (Optional but recommended) Install ExifTool for HEIC GPS support
           2. Run the application
           3. Select source folder containing images and videos
           4. Select output folder for organized media files
