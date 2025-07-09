@@ -48,9 +48,10 @@ jobs:
       - name: Clean existing Go cache (Windows)
         if: matrix.os == 'windows'
         run: |
-          go clean -modcache
-          rmdir /s /q "%LOCALAPPDATA%\go-build" 2>nul || echo "go-build cache not found"
-          rmdir /s /q "%GOPATH%\pkg\mod" 2>nul || echo "pkg mod cache not found"
+          go clean -modcache || echo "modcache clean completed"
+          if exist "%LOCALAPPDATA%\go-build" rmdir /s /q "%LOCALAPPDATA%\go-build"
+          if exist "%GOPATH%\pkg\mod" rmdir /s /q "%GOPATH%\pkg\mod"
+          echo "Cache cleanup completed"
         continue-on-error: true
         shell: cmd
 
@@ -79,9 +80,10 @@ jobs:
       - name: Clean Go cache (if cache restore failed - Windows)
         if: failure() && matrix.os == 'windows'
         run: |
-          go clean -modcache
-          rmdir /s /q "%LOCALAPPDATA%\go-build" 2>nul || echo "go-build cache not found"
-          rmdir /s /q "%GOPATH%\pkg\mod" 2>nul || echo "pkg mod cache not found"
+          go clean -modcache || echo "modcache clean completed"
+          if exist "%LOCALAPPDATA%\go-build" rmdir /s /q "%LOCALAPPDATA%\go-build"
+          if exist "%GOPATH%\pkg\mod" rmdir /s /q "%GOPATH%\pkg\mod"
+          echo "Cache cleanup completed"
         continue-on-error: true
         shell: cmd
 
