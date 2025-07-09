@@ -49,10 +49,10 @@ jobs:
         if: matrix.os == 'windows'
         run: |
           go clean -modcache
-          if (Test-Path "$env:LOCALAPPDATA\go-build") { Remove-Item -Path "$env:LOCALAPPDATA\go-build" -Recurse -Force }
-          if (Test-Path "$env:GOPATH\pkg\mod") { Remove-Item -Path "$env:GOPATH\pkg\mod" -Recurse -Force }
+          rmdir /s /q "%LOCALAPPDATA%\go-build" 2>nul || echo "go-build cache not found"
+          rmdir /s /q "%GOPATH%\pkg\mod" 2>nul || echo "pkg mod cache not found"
         continue-on-error: true
-        shell: powershell
+        shell: cmd
 
       - name: Clean existing Go cache (Unix)
         if: matrix.os != 'windows'
@@ -80,10 +80,10 @@ jobs:
         if: failure() && matrix.os == 'windows'
         run: |
           go clean -modcache
-          if (Test-Path "$env:LOCALAPPDATA\go-build") { Remove-Item -Path "$env:LOCALAPPDATA\go-build" -Recurse -Force }
-          if (Test-Path "$env:GOPATH\pkg\mod") { Remove-Item -Path "$env:GOPATH\pkg\mod" -Recurse -Force }
+          rmdir /s /q "%LOCALAPPDATA%\go-build" 2>nul || echo "go-build cache not found"
+          rmdir /s /q "%GOPATH%\pkg\mod" 2>nul || echo "pkg mod cache not found"
         continue-on-error: true
-        shell: powershell
+        shell: cmd
 
       - name: Clean Go cache (if cache restore failed - Unix)
         if: failure() && matrix.os != 'windows'
