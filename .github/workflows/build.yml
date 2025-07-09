@@ -51,9 +51,18 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-1.21-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
+            ${{ runner.os }}-go-1.21-${{ matrix.goos }}-${{ matrix.goarch }}-
+            ${{ runner.os }}-go-1.21-
             ${{ runner.os }}-go-
+
+      - name: Clean Go cache (if cache restore failed)
+        if: failure()
+        run: |
+          go clean -modcache
+          rm -rf ~/.cache/go-build
+        continue-on-error: true
 
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-intel' || matrix.os == 'macos-apple-silicon'
@@ -66,6 +75,11 @@ jobs:
         run: |
           # Install dependencies for Fyne on Windows
           # No additional dependencies needed as Fyne handles this
+
+      - name: Download Go modules
+        run: |
+          go mod download
+          go mod verify
 
       - name: Build application
         env:
