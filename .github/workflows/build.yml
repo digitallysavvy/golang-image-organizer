@@ -45,12 +45,23 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Clean existing Go cache
+      - name: Clean existing Go cache (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          go clean -modcache
+          if (Test-Path "$env:LOCALAPPDATA\go-build") { Remove-Item -Path "$env:LOCALAPPDATA\go-build" -Recurse -Force }
+          if (Test-Path "$env:GOPATH\pkg\mod") { Remove-Item -Path "$env:GOPATH\pkg\mod" -Recurse -Force }
+        continue-on-error: true
+        shell: powershell
+
+      - name: Clean existing Go cache (Unix)
+        if: matrix.os != 'windows'
         run: |
           go clean -modcache || true
           rm -rf ~/.cache/go-build || true
           rm -rf ~/go/pkg/mod || true
         continue-on-error: true
+        shell: bash
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -65,13 +76,23 @@ jobs:
             ${{ runner.os }}-go-1.21-
         continue-on-error: true
 
-      - name: Clean Go cache (if cache restore failed)
-        if: failure()
+      - name: Clean Go cache (if cache restore failed - Windows)
+        if: failure() && matrix.os == 'windows'
+        run: |
+          go clean -modcache
+          if (Test-Path "$env:LOCALAPPDATA\go-build") { Remove-Item -Path "$env:LOCALAPPDATA\go-build" -Recurse -Force }
+          if (Test-Path "$env:GOPATH\pkg\mod") { Remove-Item -Path "$env:GOPATH\pkg\mod" -Recurse -Force }
+        continue-on-error: true
+        shell: powershell
+
+      - name: Clean Go cache (if cache restore failed - Unix)
+        if: failure() && matrix.os != 'windows'
         run: |
           go clean -modcache
           rm -rf ~/.cache/go-build
           rm -rf ~/go/pkg/mod
         continue-on-error: true
+        shell: bash
 
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-intel' || matrix.os == 'macos-apple-silicon'
