@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,11 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/rwcarlsen/goexif/exif"
+)
+
+const (
+	// BatchSize controls how many files to process at once to manage memory usage
+	DefaultBatchSize = 50
 )
 
 var exiftoolPath string
@@ -60,6 +66,7 @@ type App struct {
 	outputFolder        string
 	locationSensitivity float64
 	workerCount         int
+	batchSize           int
 	progressBar         *widget.ProgressBar
 	logText             *widget.Entry
 	sourceFolderLabel   *widget.Label
@@ -78,6 +85,7 @@ func main() {
 		window:              myWindow,
 		locationSensitivity: 0.001,            // Default ~100m sensitivity
 		workerCount:         runtime.NumCPU(), // Use number of CPU cores
+		batchSize:           DefaultBatchSize, // Default batch size for memory management
 	}
 
 	// Set up exiftool path
@@ -93,7 +101,7 @@ func main() {
 
 func (app *App) setupUI() {
 	// Title
-	title := widget.NewLabel("Media Organizer by Date and Location")
+	title := widget.NewLabel("Media Organizer by Location and Date")
 	title.TextStyle.Bold = true
 
 	// Source folder selection
@@ -133,6 +141,20 @@ func (app *App) setupUI() {
 		workerValueLabel.SetText(fmt.Sprintf("%d threads (CPU cores: %d)", app.workerCount, runtime.NumCPU()))
 	}
 
+	// Batch size slider
+	batchLabel := widget.NewLabel("Batch Size:")
+	batchInfo := widget.NewLabel("Smaller batches = less memory usage (but slower processing)")
+	batchSlider := widget.NewSlider(100, 2000)
+	batchSlider.Value = float64(app.batchSize)
+	batchSlider.Step = 100
+
+	batchValueLabel := widget.NewLabel(fmt.Sprintf("%d files per batch", app.batchSize))
+
+	batchSlider.OnChanged = func(value float64) {
+		app.batchSize = int(value)
+		batchValueLabel.SetText(fmt.Sprintf("%d files per batch", app.batchSize))
+	}
+
 	// Progress bar
 	app.progressBar = widget.NewProgressBar()
 	app.progressBar.Hide()
@@ -168,12 +190,21 @@ func (app *App) setupUI() {
 		workerValueLabel,
 	)
 
+	batchSection := container.NewVBox(
+		batchLabel,
+		batchInfo,
+		batchSlider,
+		batchValueLabel,
+	)
+
 	controlSection := container.NewVBox(
 		folderSection,
 		widget.NewSeparator(),
 		sensitivitySection,
 		widget.NewSeparator(),
 		workerSection,
+		widget.NewSeparator(),
+		batchSection,
 		widget.NewSeparator(),
 		startBtn,
 		app.progressBar,
@@ -243,55 +274,48 @@ func (app *App) organizeImages() {
 	}
 
 	app.safeLog(fmt.Sprintf("Found %d media files\n", len(mediaFiles)))
-	app.safeLog(fmt.Sprintf("Using %d worker threads for processing\n", app.workerCount))
+	app.safeLog(fmt.Sprintf("Using %d worker threads and batch size of %d for processing\n", app.workerCount, app.batchSize))
 
-	// Process files using worker pool
-	imageInfos := app.processFilesParallel(mediaFiles)
+	totalFiles := len(mediaFiles)
+	var allLocationClusters []LocationCluster
+	processedFiles := 0
 
-	app.safeLog(fmt.Sprintf("Successfully processed %d files\n", len(imageInfos)))
-
-	// Group images by location clusters
-	locationClusters := app.clusterImagesByLocation(imageInfos)
-
-	// Organize images into folders (this part is kept sequential for file system safety)
-	totalImages := len(imageInfos)
-	processedImages := 0
-
-	for _, cluster := range locationClusters {
-		for _, imagePath := range cluster.Images {
-			// Find the corresponding ImageInfo
-			var info *ImageInfo
-			for _, img := range imageInfos {
-				if img.OriginalPath == imagePath {
-					info = img
-					break
-				}
-			}
-
-			if info == nil {
-				continue
-			}
-
-			// Update location name to cluster name
-			info.Location = cluster.Name
-
-			// Create destination folder structure
-			destFolder := app.createFolderStructure(app.outputFolder, info)
-
-			// Copy file to destination
-			if err := app.copyFile(imagePath, destFolder); err != nil {
-				app.safeLog(fmt.Sprintf("Error copying %s: %v\n", filepath.Base(imagePath), err))
-				continue
-			}
-
-			processedImages++
-			progress := 0.7 + (float64(processedImages)/float64(totalImages))*0.3 // Last 30% for copying
-			app.progressBar.SetValue(progress)
+	// Process files in batches to manage memory usage
+	for batchStart := 0; batchStart < totalFiles; batchStart += app.batchSize {
+		batchEnd := batchStart + app.batchSize
+		if batchEnd > totalFiles {
+			batchEnd = totalFiles
 		}
+
+		app.safeLog(fmt.Sprintf("Processing batch %d-%d of %d files...\n", batchStart+1, batchEnd, totalFiles))
+
+		// Process current batch
+		batchFiles := mediaFiles[batchStart:batchEnd]
+		batchImageInfos := app.processFilesParallel(batchFiles)
+
+		// Update progress for processing (first 50% of overall progress)
+		processedFiles += len(batchFiles)
+		processingProgress := (float64(processedFiles) / float64(totalFiles)) * 0.5
+		app.progressBar.SetValue(processingProgress)
+
+		// Cluster this batch and merge with existing clusters
+		batchClusters := app.clusterImagesByLocation(batchImageInfos)
+		allLocationClusters = app.mergeLocationClusters(allLocationClusters, batchClusters)
+
+		app.safeLog(fmt.Sprintf("Batch processed: %d files, %d clusters so far\n", len(batchImageInfos), len(allLocationClusters)))
+
+		// Clear batch from memory (explicit cleanup)
+		batchImageInfos = nil
+		batchClusters = nil
 	}
 
+	app.safeLog(fmt.Sprintf("All batches processed. Total location clusters: %d\n", len(allLocationClusters)))
+
+	// Now organize images into folders (this part processes each cluster)
+	app.organizeByLocationClusters(allLocationClusters, totalFiles)
+
 	app.progressBar.SetValue(1.0)
-	app.safeLog(fmt.Sprintf("Organization complete! Processed %d media files into %d location clusters.\n", processedImages, len(locationClusters)))
+	app.safeLog(fmt.Sprintf("Organization complete! Processed %d media files into %d location clusters.\n", totalFiles, len(allLocationClusters)))
 
 	// Open file explorer to output folder
 	app.openFileExplorer(app.outputFolder)
@@ -608,7 +632,8 @@ func (app *App) createFolderStructure(baseFolder string, info *ImageInfo) string
 	year := info.Date.Format("2006")
 	monthDay := info.Date.Format("01-02")
 
-	folderPath := filepath.Join(baseFolder, year, monthDay, info.Location)
+	// Changed folder structure: location first, then date
+	folderPath := filepath.Join(baseFolder, info.Location, year, monthDay)
 
 	if err := os.MkdirAll(folderPath, 0755); err != nil {
 		log.Printf("Warning: Could not create directory %s: %v", folderPath, err)
@@ -961,4 +986,136 @@ func (app *App) openFileExplorer(folderPath string) {
 	} else {
 		app.safeLog("📂 Opened output folder in file explorer\n")
 	}
+}
+
+// mergeLocationClusters merges new location clusters with existing ones, combining clusters that are close together
+func (app *App) mergeLocationClusters(existingClusters, newClusters []LocationCluster) []LocationCluster {
+	result := make([]LocationCluster, len(existingClusters))
+	copy(result, existingClusters)
+
+	for _, newCluster := range newClusters {
+		merged := false
+
+		// Try to merge with existing clusters
+		for i := range result {
+			if result[i].Name == "No-Location" && newCluster.Name == "No-Location" {
+				// Merge no-location clusters
+				result[i].Images = append(result[i].Images, newCluster.Images...)
+				merged = true
+				break
+			} else if result[i].Name != "No-Location" && newCluster.Name != "No-Location" {
+				// Check if clusters are close enough to merge
+				distance := app.calculateDistance(
+					newCluster.CenterLat, newCluster.CenterLng,
+					result[i].CenterLat, result[i].CenterLng,
+				)
+				if distance <= app.locationSensitivity {
+					// Merge clusters
+					totalImages := len(result[i].Images) + len(newCluster.Images)
+					result[i].CenterLat = (result[i].CenterLat*float64(len(result[i].Images)) + newCluster.CenterLat*float64(len(newCluster.Images))) / float64(totalImages)
+					result[i].CenterLng = (result[i].CenterLng*float64(len(result[i].Images)) + newCluster.CenterLng*float64(len(newCluster.Images))) / float64(totalImages)
+					result[i].Images = append(result[i].Images, newCluster.Images...)
+					merged = true
+					break
+				}
+			}
+		}
+
+		// If not merged, add as new cluster
+		if !merged {
+			result = append(result, newCluster)
+		}
+	}
+
+	return result
+}
+
+// organizeByLocationClusters processes each location cluster and copies files to their destinations
+func (app *App) organizeByLocationClusters(locationClusters []LocationCluster, totalFiles int) {
+	processedFiles := 0
+
+	for _, cluster := range locationClusters {
+		app.safeLog(fmt.Sprintf("Processing location cluster: %s (%d files)\n", cluster.Name, len(cluster.Images)))
+
+		// Check if location folder already exists and get existing files
+		baseLocationFolder := filepath.Join(app.outputFolder, cluster.Name)
+		existingFiles := app.getExistingFiles(baseLocationFolder)
+
+		// Create a map for quick lookup of existing files
+		existingFileMap := make(map[string]bool)
+		for _, file := range existingFiles {
+			existingFileMap[filepath.Base(file)] = true
+		}
+
+		// Extract image info for sorting, but only for files that don't already exist
+		var clusterImageInfos []*ImageInfo
+		for _, imagePath := range cluster.Images {
+			filename := filepath.Base(imagePath)
+			
+			// Skip if file already exists in destination
+			if existingFileMap[filename] {
+				app.safeLog(fmt.Sprintf("Skipping existing file: %s\n", filename))
+				processedFiles++
+				continue
+			}
+
+			// Extract image info for this file
+			info, err := app.extractImageInfo(imagePath)
+			if err != nil {
+				app.safeLog(fmt.Sprintf("Error extracting info from %s: %v\n", filename, err))
+				processedFiles++
+				continue
+			}
+
+			// Update location name to cluster name
+			info.Location = cluster.Name
+			clusterImageInfos = append(clusterImageInfos, info)
+		}
+
+		// Sort images within this cluster by date
+		sort.Slice(clusterImageInfos, func(i, j int) bool {
+			return clusterImageInfos[i].Date.Before(clusterImageInfos[j].Date)
+		})
+
+		// Process sorted images for this cluster
+		for _, info := range clusterImageInfos {
+			// Create destination folder structure
+			destFolder := app.createFolderStructure(app.outputFolder, info)
+
+			// Copy file to destination
+			if err := app.copyFile(info.OriginalPath, destFolder); err != nil {
+				app.safeLog(fmt.Sprintf("Error copying %s: %v\n", filepath.Base(info.OriginalPath), err))
+			}
+
+			processedFiles++
+			// Update progress for copying (50% to 100% of overall progress)
+			progress := 0.5 + (float64(processedFiles)/float64(totalFiles))*0.5
+			app.progressBar.SetValue(progress)
+		}
+	}
+}
+
+// getExistingFiles recursively gets all files in a directory
+func (app *App) getExistingFiles(baseFolder string) []string {
+	var files []string
+	
+	if _, err := os.Stat(baseFolder); os.IsNotExist(err) {
+		return files // Folder doesn't exist yet
+	}
+
+	err := filepath.Walk(baseFolder, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	if err != nil {
+		app.safeLog(fmt.Sprintf("Warning: Could not scan existing files in %s: %v\n", baseFolder, err))
+	}
+
+	return files
 }
