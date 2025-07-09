@@ -218,8 +218,11 @@ GOOS=linux GOARCH=amd64 go build -o media-organizer-linux image_organizer.go
 3. **Adjust Location Sensitivity**: Use the slider to control how close locations need to be to be grouped together
    - Lower values = Group closer locations together
    - Higher values = More separate location groups
-4. **Start Organizing**: Click the "Start Organizing" button to begin the process
-5. **View Results**: When complete, the output folder will automatically open in your file explorer
+4. **Configure Processing Settings**:
+   - **Processing Threads**: More threads = faster processing (uses more CPU)
+   - **Batch Size**: Smaller batches = less memory usage (but slower processing)
+5. **Start Organizing**: Click the "Start Organizing" button to begin the process
+6. **View Results**: When complete, the output folder will automatically open in your file explorer
 
 ## Folder Structure
 
@@ -227,19 +230,24 @@ The application creates the following folder structure:
 
 ```
 Output Folder/
-├── 2024/
-│   ├── 01-January/
-│   │   ├── Location_1/
+├── Location_1/
+│   ├── 2024/
+│   │   ├── 01-15/
 │   │   │   ├── image1.jpg
 │   │   │   ├── video1.mov
 │   │   │   └── image2.heic
-│   │   └── Location_2/
+│   │   └── 03-20/
 │   │       ├── image3.jpg
 │   │       └── video2.mp4
-│   └── 02-February/
-│       └── Location_3/
+├── Location_2/
+│   └── 2024/
+│       └── 02-10/
 │           ├── image4.jpg
 │           └── video3.mov
+└── No-Location/
+    └── 2024/
+        └── 01-01/
+            └── screenshot.png
 ```
 
 ## Configuration
@@ -251,6 +259,17 @@ The location sensitivity setting determines how close GPS coordinates need to be
 - **0.0001**: Very precise (~11m radius)
 - **0.001**: Default (~100m radius)
 - **0.01**: Broad grouping (~1km radius)
+
+### Memory Management
+
+The application uses batch processing to handle large photo collections efficiently:
+
+- **Batch Size**: Controls how many files are processed at once
+  - **100-300**: Low memory usage, good for systems with limited RAM
+  - **500**: Default balanced setting
+  - **1000-2000**: Higher memory usage but faster processing
+- **Duplicate Detection**: Automatically skips files that already exist in the destination
+- **Incremental Processing**: Can be run multiple times on the same folder without reprocessing existing files
 
 ## Dependencies
 
@@ -320,8 +339,16 @@ This project is open source. Feel free to use, modify, and distribute as needed.
 
    - **Normal**: For very large media collections, processing takes time
    - **Monitor**: Progress is shown in the UI with real-time updates
+   - **Optimize**: Adjust batch size and thread count based on your system
+   - **Memory**: Lower batch sizes for systems with limited RAM
 
-6. **File explorer doesn't open automatically**
+6. **Out of memory errors**
+
+   - **Solution**: Reduce batch size to 100-300 files per batch
+   - **Alternative**: Close other applications to free up memory
+   - **Monitor**: Watch system memory usage during processing
+
+7. **File explorer doesn't open automatically**
    - **Cause**: System permissions or unsupported file manager
    - **Solution**: Check the log for error messages; you can manually navigate to the output folder
 
