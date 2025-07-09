@@ -246,7 +246,6 @@ jobs:
         with:
           files: |
             release-assets/*.zip
-            release-assets/media-organizer-*
           body_path: release_notes.md
           draft: false
           prerelease: false
