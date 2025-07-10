@@ -293,16 +293,24 @@ func (app *App) organizeImages() {
 		batchFiles := mediaFiles[batchStart:batchEnd]
 		batchImageInfos := app.processFilesParallel(batchFiles)
 
-		// Update progress for processing (first 50% of overall progress)
+		// Update progress for processing (first 25% of overall progress)
 		processedFiles += len(batchFiles)
-		processingProgress := (float64(processedFiles) / float64(totalFiles)) * 0.5
+		processingProgress := (float64(processedFiles) / float64(totalFiles)) * 0.25
 		app.progressBar.SetValue(processingProgress)
 
-		// Cluster this batch and merge with existing clusters
+		// Cluster this batch
 		batchClusters := app.clusterImagesByLocation(batchImageInfos)
+		
+		// Merge with existing clusters to avoid duplicates
 		allLocationClusters = app.mergeLocationClusters(allLocationClusters, batchClusters)
 
-		app.safeLog(fmt.Sprintf("Batch processed: %d files, %d clusters so far\n", len(batchImageInfos), len(allLocationClusters)))
+		app.safeLog(fmt.Sprintf("Batch clustered: %d files, %d clusters so far\n", len(batchImageInfos), len(allLocationClusters)))
+
+		// IMPORTANT: Copy files for this batch immediately
+		// This ensures files are copied as we go, preventing data loss on crashes
+		app.organizeByLocationClusters(batchClusters, totalFiles)
+
+		app.safeLog(fmt.Sprintf("Batch %d-%d completed and files copied\n", batchStart+1, batchEnd))
 
 		// Clear batch from memory (explicit cleanup)
 		batchImageInfos = nil
@@ -310,9 +318,6 @@ func (app *App) organizeImages() {
 	}
 
 	app.safeLog(fmt.Sprintf("All batches processed. Total location clusters: %d\n", len(allLocationClusters)))
-
-	// Now organize images into folders (this part processes each cluster)
-	app.organizeByLocationClusters(allLocationClusters, totalFiles)
 
 	app.progressBar.SetValue(1.0)
 	app.safeLog(fmt.Sprintf("Organization complete! Processed %d media files into %d location clusters.\n", totalFiles, len(allLocationClusters)))
@@ -1032,8 +1037,6 @@ func (app *App) mergeLocationClusters(existingClusters, newClusters []LocationCl
 
 // organizeByLocationClusters processes each location cluster and copies files to their destinations
 func (app *App) organizeByLocationClusters(locationClusters []LocationCluster, totalFiles int) {
-	processedFiles := 0
-
 	for _, cluster := range locationClusters {
 		app.safeLog(fmt.Sprintf("Processing location cluster: %s (%d files)\n", cluster.Name, len(cluster.Images)))
 
@@ -1049,13 +1052,14 @@ func (app *App) organizeByLocationClusters(locationClusters []LocationCluster, t
 
 		// Extract image info for sorting, but only for files that don't already exist
 		var clusterImageInfos []*ImageInfo
+		skippedCount := 0
 		for _, imagePath := range cluster.Images {
 			filename := filepath.Base(imagePath)
 			
 			// Skip if file already exists in destination
 			if existingFileMap[filename] {
 				app.safeLog(fmt.Sprintf("Skipping existing file: %s\n", filename))
-				processedFiles++
+				skippedCount++
 				continue
 			}
 
@@ -1063,7 +1067,7 @@ func (app *App) organizeByLocationClusters(locationClusters []LocationCluster, t
 			info, err := app.extractImageInfo(imagePath)
 			if err != nil {
 				app.safeLog(fmt.Sprintf("Error extracting info from %s: %v\n", filename, err))
-				processedFiles++
+				skippedCount++
 				continue
 			}
 
@@ -1078,6 +1082,7 @@ func (app *App) organizeByLocationClusters(locationClusters []LocationCluster, t
 		})
 
 		// Process sorted images for this cluster
+		copiedCount := 0
 		for _, info := range clusterImageInfos {
 			// Create destination folder structure
 			destFolder := app.createFolderStructure(app.outputFolder, info)
@@ -1085,13 +1090,12 @@ func (app *App) organizeByLocationClusters(locationClusters []LocationCluster, t
 			// Copy file to destination
 			if err := app.copyFile(info.OriginalPath, destFolder); err != nil {
 				app.safeLog(fmt.Sprintf("Error copying %s: %v\n", filepath.Base(info.OriginalPath), err))
+			} else {
+				copiedCount++
 			}
-
-			processedFiles++
-			// Update progress for copying (50% to 100% of overall progress)
-			progress := 0.5 + (float64(processedFiles)/float64(totalFiles))*0.5
-			app.progressBar.SetValue(progress)
 		}
+
+		app.safeLog(fmt.Sprintf("Cluster %s: %d files copied, %d files skipped\n", cluster.Name, copiedCount, skippedCount))
 	}
 }
 
