@@ -441,7 +441,7 @@ func (app *App) setupUI() {
 		container.NewVBox(title, controlSection),
 		logSection,
 	)
-	content.SetOffset(0.35) // Give more space to logs (65% for logs, 35% for controls)
+	content.SetOffset(0.25)
 
 	app.window.SetContent(content)
 }
