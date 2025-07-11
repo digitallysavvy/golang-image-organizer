@@ -26,6 +26,10 @@ import (
 const (
 	// BatchSize controls how many files to process at once to manage memory usage
 	DefaultBatchSize = 50
+	// MaxLogLines limits the number of log lines displayed in UI
+	MaxLogLines = 500
+	// UI update interval for better performance
+	UIUpdateInterval = 250 * time.Millisecond
 )
 
 var exiftoolPath string
@@ -42,6 +46,30 @@ type WorkerPool struct {
 	Jobs        chan string
 	Results     chan ProcessingResult
 	wg          sync.WaitGroup
+	closed      bool
+}
+
+// LogBuffer manages a circular buffer for UI logging
+type LogBuffer struct {
+	lines    []string
+	maxLines int
+	current  int
+	full     bool
+	mutex    sync.RWMutex
+}
+
+// SpatialGrid for efficient location clustering
+type SpatialGrid struct {
+	cells       map[string]*GridCell
+	sensitivity float64
+	mutex       sync.RWMutex
+}
+
+type GridCell struct {
+	CenterLat float64
+	CenterLng float64
+	Images    []string
+	Count     int
 }
 
 type ImageInfo struct {
@@ -71,7 +99,190 @@ type App struct {
 	logText             *widget.Entry
 	sourceFolderLabel   *widget.Label
 	outputFolderLabel   *widget.Label
-	logMutex            sync.Mutex // For thread-safe logging
+	
+	// Enhanced components for better performance
+	logBuffer           *LogBuffer
+	spatialGrid         *SpatialGrid
+	globalWorkerPool    *WorkerPool
+	logUpdateTimer      *time.Ticker
+	
+	// Thread-safe counters
+	processedFiles      int64
+	totalFiles          int64
+	counterMutex        sync.RWMutex
+}
+
+// NewLogBuffer creates a new circular log buffer
+func NewLogBuffer(maxLines int) *LogBuffer {
+	return &LogBuffer{
+		lines:    make([]string, maxLines),
+		maxLines: maxLines,
+		current:  0,
+		full:     false,
+	}
+}
+
+// Add appends a new log line
+func (lb *LogBuffer) Add(line string) {
+	lb.mutex.Lock()
+	defer lb.mutex.Unlock()
+	
+	lb.lines[lb.current] = line
+	lb.current = (lb.current + 1) % lb.maxLines
+	if lb.current == 0 {
+		lb.full = true
+	}
+}
+
+// GetLines returns all current log lines in order
+func (lb *LogBuffer) GetLines() []string {
+	lb.mutex.RLock()
+	defer lb.mutex.RUnlock()
+	
+	if !lb.full {
+		return lb.lines[:lb.current]
+	}
+	
+	result := make([]string, lb.maxLines)
+	copy(result, lb.lines[lb.current:])
+	copy(result[len(lb.lines)-lb.current:], lb.lines[:lb.current])
+	return result
+}
+
+// NewSpatialGrid creates a new spatial grid for efficient clustering
+func NewSpatialGrid(sensitivity float64) *SpatialGrid {
+	return &SpatialGrid{
+		cells:       make(map[string]*GridCell),
+		sensitivity: sensitivity,
+	}
+}
+
+// GetGridKey generates a grid key for given coordinates
+func (sg *SpatialGrid) GetGridKey(lat, lng float64) string {
+	// Create grid cells based on sensitivity
+	gridLat := math.Floor(lat/sg.sensitivity) * sg.sensitivity
+	gridLng := math.Floor(lng/sg.sensitivity) * sg.sensitivity
+	return fmt.Sprintf("%.6f,%.6f", gridLat, gridLng)
+}
+
+// AddImage adds an image to the spatial grid
+func (sg *SpatialGrid) AddImage(info *ImageInfo) {
+	if !info.HasGPS {
+		sg.addToNoLocationCluster(info.OriginalPath)
+		return
+	}
+	
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+	
+	key := sg.GetGridKey(info.Latitude, info.Longitude)
+	
+	if cell, exists := sg.cells[key]; exists {
+		cell.Images = append(cell.Images, info.OriginalPath)
+		cell.Count++
+		// Update weighted center
+		cell.CenterLat = (cell.CenterLat*float64(cell.Count-1) + info.Latitude) / float64(cell.Count)
+		cell.CenterLng = (cell.CenterLng*float64(cell.Count-1) + info.Longitude) / float64(cell.Count)
+	} else {
+		sg.cells[key] = &GridCell{
+			CenterLat: info.Latitude,
+			CenterLng: info.Longitude,
+			Images:    []string{info.OriginalPath},
+			Count:     1,
+		}
+	}
+}
+
+// addToNoLocationCluster handles images without GPS data
+func (sg *SpatialGrid) addToNoLocationCluster(imagePath string) {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+	
+	const noLocationKey = "no-location"
+	if cell, exists := sg.cells[noLocationKey]; exists {
+		cell.Images = append(cell.Images, imagePath)
+		cell.Count++
+	} else {
+		sg.cells[noLocationKey] = &GridCell{
+			CenterLat: 0,
+			CenterLng: 0,
+			Images:    []string{imagePath},
+			Count:     1,
+		}
+	}
+}
+
+// GetClusters returns location clusters from the spatial grid
+func (sg *SpatialGrid) GetClusters(app *App) []LocationCluster {
+	sg.mutex.RLock()
+	defer sg.mutex.RUnlock()
+	
+	clusters := make([]LocationCluster, 0, len(sg.cells))
+	
+	for key, cell := range sg.cells {
+		var name string
+		if key == "no-location" {
+			name = "No-Location"
+		} else {
+			name = app.formatLocation(cell.CenterLat, cell.CenterLng)
+		}
+		
+		clusters = append(clusters, LocationCluster{
+			Name:      name,
+			CenterLat: cell.CenterLat,
+			CenterLng: cell.CenterLng,
+			Images:    cell.Images,
+		})
+	}
+	
+	return clusters
+}
+
+// Clear cleans up the spatial grid
+func (sg *SpatialGrid) Clear() {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+	sg.cells = make(map[string]*GridCell)
+}
+
+// NewWorkerPool creates a new worker pool
+func NewWorkerPool(workerCount int, bufferSize int) *WorkerPool {
+	return &WorkerPool{
+		WorkerCount: workerCount,
+		Jobs:        make(chan string, bufferSize),
+		Results:     make(chan ProcessingResult, bufferSize),
+	}
+}
+
+// Start initializes the worker pool
+func (wp *WorkerPool) Start(app *App) {
+	for i := 0; i < wp.WorkerCount; i++ {
+		wp.wg.Add(1)
+		go app.worker(wp)
+	}
+}
+
+// Submit adds a job to the pool
+func (wp *WorkerPool) Submit(filePath string) {
+	if !wp.closed {
+		wp.Jobs <- filePath
+	}
+}
+
+// Close shuts down the worker pool
+func (wp *WorkerPool) Close() {
+	if !wp.closed {
+		wp.closed = true
+		close(wp.Jobs)
+	}
+}
+
+// Wait waits for all workers to finish
+func (wp *WorkerPool) Wait() {
+	wp.wg.Wait()
+	if !wp.closed {
+		close(wp.Results)
+	}
 }
 
 func main() {
@@ -86,6 +297,7 @@ func main() {
 		locationSensitivity: 0.001,            // Default ~100m sensitivity
 		workerCount:         runtime.NumCPU(), // Use number of CPU cores
 		batchSize:           DefaultBatchSize, // Default batch size for memory management
+		logBuffer:           NewLogBuffer(MaxLogLines),
 	}
 
 	// Set up exiftool path
@@ -144,9 +356,9 @@ func (app *App) setupUI() {
 	// Batch size slider
 	batchLabel := widget.NewLabel("Batch Size:")
 	batchInfo := widget.NewLabel("Smaller batches = less memory usage (but slower processing)")
-	batchSlider := widget.NewSlider(100, 2000)
+	batchSlider := widget.NewSlider(10, 500)  // Reduced max for large datasets
 	batchSlider.Value = float64(app.batchSize)
-	batchSlider.Step = 100
+	batchSlider.Step = 10
 
 	batchValueLabel := widget.NewLabel(fmt.Sprintf("%d files per batch", app.batchSize))
 
@@ -163,6 +375,9 @@ func (app *App) setupUI() {
 	app.logText = widget.NewMultiLineEntry()
 	app.logText.SetText("Ready to organize media files...\n")
 	app.logText.Disable()
+	
+	// Set minimum size for better readability
+	app.logText.Resize(fyne.NewSize(600, 200)) // Minimum width and height
 
 	// Start button
 	startBtn := widget.NewButton("Start Organizing", app.startOrganizing)
@@ -210,16 +425,23 @@ func (app *App) setupUI() {
 		app.progressBar,
 	)
 
+	// Create a better log section with more prominent styling
+	logLabel := widget.NewLabel("🔍 Processing Log:")
+	logLabel.TextStyle.Bold = true
+	
+	logScroll := container.NewScroll(app.logText)
+	logScroll.SetMinSize(fyne.NewSize(400, 150)) // Ensure minimum scroll area size
+	
 	logSection := container.NewVBox(
-		widget.NewLabel("Log:"),
-		container.NewScroll(app.logText),
+		logLabel,
+		logScroll,
 	)
 
 	content := container.NewVSplit(
 		container.NewVBox(title, controlSection),
 		logSection,
 	)
-	content.SetOffset(0.6)
+	content.SetOffset(0.25)
 
 	app.window.SetContent(content)
 }
@@ -260,11 +482,88 @@ func (app *App) startOrganizing() {
 	app.progressBar.Show()
 	app.safeLog("Starting media organization...\n")
 
+	// Reset counters
+	app.counterMutex.Lock()
+	app.processedFiles = 0
+	app.totalFiles = 0
+	app.counterMutex.Unlock()
+
+	// Initialize spatial grid with current sensitivity
+	app.spatialGrid = NewSpatialGrid(app.locationSensitivity)
+	
+	// Start UI update timer
+	app.startUIUpdateTimer()
+
 	// Run organization in a goroutine to prevent UI blocking
 	go app.organizeImages()
 }
 
+// startUIUpdateTimer starts a timer for periodic UI updates
+func (app *App) startUIUpdateTimer() {
+	app.logUpdateTimer = time.NewTicker(UIUpdateInterval)
+	go func() {
+		for range app.logUpdateTimer.C {
+			app.updateUIFromBuffer()
+		}
+	}()
+}
+
+// stopUIUpdateTimer stops the UI update timer
+func (app *App) stopUIUpdateTimer() {
+	if app.logUpdateTimer != nil {
+		app.logUpdateTimer.Stop()
+		app.logUpdateTimer = nil
+	}
+}
+
+// updateUIFromBuffer updates the UI with buffered log content
+func (app *App) updateUIFromBuffer() {
+	lines := app.logBuffer.GetLines()
+	content := strings.Join(lines, "")
+	
+	// Update UI on main thread
+	app.logText.SetText(content)
+	
+	// Update progress bar
+	app.counterMutex.RLock()
+	if app.totalFiles > 0 {
+		progress := float64(app.processedFiles) / float64(app.totalFiles)
+		app.progressBar.SetValue(progress)
+	}
+	app.counterMutex.RUnlock()
+}
+
+// safeLog adds a log message using buffered logging
+func (app *App) safeLog(message string) {
+	timestamp := time.Now().Format("15:04:05")
+	app.logBuffer.Add(fmt.Sprintf("[%s] %s", timestamp, message))
+}
+
+// incrementProcessedFiles thread-safely increments the processed file counter
+func (app *App) incrementProcessedFiles() {
+	app.counterMutex.Lock()
+	app.processedFiles++
+	app.counterMutex.Unlock()
+}
+
 func (app *App) organizeImages() {
+	defer func() {
+		app.stopUIUpdateTimer()
+		app.updateUIFromBuffer() // Final update
+		
+		// Clean up worker pool
+		if app.globalWorkerPool != nil {
+			app.globalWorkerPool.Close()
+			app.globalWorkerPool.Wait()
+			app.globalWorkerPool = nil
+		}
+		
+		// Hide progress bar after a delay
+		time.AfterFunc(2*time.Second, func() {
+			app.progressBar.Hide()
+		})
+	}()
+
 	// Find all media files
 	mediaFiles, err := app.findMediaFiles(app.sourceFolder)
 	if err != nil {
@@ -273,12 +572,19 @@ func (app *App) organizeImages() {
 		return
 	}
 
+	// Set total files for progress tracking
+	app.counterMutex.Lock()
+	app.totalFiles = int64(len(mediaFiles))
+	app.counterMutex.Unlock()
+
 	app.safeLog(fmt.Sprintf("Found %d media files\n", len(mediaFiles)))
 	app.safeLog(fmt.Sprintf("Using %d worker threads and batch size of %d for processing\n", app.workerCount, app.batchSize))
 
+	// Create global worker pool for reuse across batches
+	app.globalWorkerPool = NewWorkerPool(app.workerCount, app.batchSize*2)
+	app.globalWorkerPool.Start(app)
+
 	totalFiles := len(mediaFiles)
-	var allLocationClusters []LocationCluster
-	processedFiles := 0
 
 	// Process files in batches to manage memory usage
 	for batchStart := 0; batchStart < totalFiles; batchStart += app.batchSize {
@@ -291,108 +597,74 @@ func (app *App) organizeImages() {
 
 		// Process current batch
 		batchFiles := mediaFiles[batchStart:batchEnd]
-		batchImageInfos := app.processFilesParallel(batchFiles)
+		batchImageInfos := app.processFilesWithPool(batchFiles)
 
-		// Update progress for processing (first 25% of overall progress)
-		processedFiles += len(batchFiles)
-		processingProgress := (float64(processedFiles) / float64(totalFiles)) * 0.25
-		app.progressBar.SetValue(processingProgress)
+		// Add to spatial grid for efficient clustering
+		for _, info := range batchImageInfos {
+			if info != nil {
+				app.spatialGrid.AddImage(info)
+			}
+		}
 
-		// Cluster this batch
-		batchClusters := app.clusterImagesByLocation(batchImageInfos)
-		
-		// Merge with existing clusters to avoid duplicates
-		allLocationClusters = app.mergeLocationClusters(allLocationClusters, batchClusters)
-
-		app.safeLog(fmt.Sprintf("Batch clustered: %d files, %d clusters so far\n", len(batchImageInfos), len(allLocationClusters)))
-
-		// IMPORTANT: Copy files for this batch immediately
-		// This ensures files are copied as we go, preventing data loss on crashes
-		app.organizeByLocationClusters(batchClusters, totalFiles)
-
-		app.safeLog(fmt.Sprintf("Batch %d-%d completed and files copied\n", batchStart+1, batchEnd))
+		app.safeLog(fmt.Sprintf("Batch %d-%d processed and clustered\n", batchStart+1, batchEnd))
 
 		// Clear batch from memory (explicit cleanup)
 		batchImageInfos = nil
-		batchClusters = nil
+		runtime.GC() // Force garbage collection for large datasets
 	}
 
-	app.safeLog(fmt.Sprintf("All batches processed. Total location clusters: %d\n", len(allLocationClusters)))
+	// Get final clusters from spatial grid
+	finalClusters := app.spatialGrid.GetClusters(app)
+	app.safeLog(fmt.Sprintf("Clustering complete. Total location clusters: %d\n", len(finalClusters)))
 
-	app.progressBar.SetValue(1.0)
-	app.safeLog(fmt.Sprintf("Organization complete! Processed %d media files into %d location clusters.\n", totalFiles, len(allLocationClusters)))
+	// Copy files based on clusters
+	app.safeLog("Starting file organization...\n")
+	app.organizeByLocationClusters(finalClusters)
+
+	app.safeLog(fmt.Sprintf("Organization complete! Processed %d media files into %d location clusters.\n", totalFiles, len(finalClusters)))
 
 	// Open file explorer to output folder
 	app.openFileExplorer(app.outputFolder)
-
-	// Hide progress bar after a delay
-	time.AfterFunc(2*time.Second, func() {
-		app.progressBar.Hide()
-	})
+	
+	// Clean up spatial grid
+	app.spatialGrid.Clear()
 }
 
-func (app *App) clusterImagesByLocation(images []*ImageInfo) []LocationCluster {
-	var clusters []LocationCluster
+// processFilesWithPool processes media files using the global worker pool
+func (app *App) processFilesWithPool(mediaFiles []string) []*ImageInfo {
+	if len(mediaFiles) == 0 {
+		return nil
+	}
 
-	for _, img := range images {
-		if !img.HasGPS {
-			// Handle images without GPS separately
-			found := false
-			for i := range clusters {
-				if clusters[i].Name == "No-Location" {
-					clusters[i].Images = append(clusters[i].Images, img.OriginalPath)
-					found = true
-					break
-				}
-			}
-			if !found {
-				clusters = append(clusters, LocationCluster{
-					Name:   "No-Location",
-					Images: []string{img.OriginalPath},
-				})
-			}
-			continue
-		}
+	// Submit jobs to global worker pool
+	for _, mediaFile := range mediaFiles {
+		app.globalWorkerPool.Submit(mediaFile)
+	}
 
-		// Find existing cluster within sensitivity range
-		found := false
-		for i := range clusters {
-			if clusters[i].Name == "No-Location" {
-				continue
-			}
+	// Collect results
+	var imageInfos []*ImageInfo
+	var errorCount int
 
-			distance := app.calculateDistance(img.Latitude, img.Longitude, clusters[i].CenterLat, clusters[i].CenterLng)
-			if distance <= app.locationSensitivity {
-				// Add to existing cluster and update center
-				clusters[i].Images = append(clusters[i].Images, img.OriginalPath)
-				// Update cluster center (simple average)
-				numImages := len(clusters[i].Images)
-				clusters[i].CenterLat = (clusters[i].CenterLat*float64(numImages-1) + img.Latitude) / float64(numImages)
-				clusters[i].CenterLng = (clusters[i].CenterLng*float64(numImages-1) + img.Longitude) / float64(numImages)
-				found = true
-				break
-			}
-		}
+	for i := 0; i < len(mediaFiles); i++ {
+		result := <-app.globalWorkerPool.Results
+		app.incrementProcessedFiles()
 
-		if !found {
-			// Create new cluster
-			clusterName := app.formatLocation(img.Latitude, img.Longitude)
-			clusters = append(clusters, LocationCluster{
-				Name:      clusterName,
-				CenterLat: img.Latitude,
-				CenterLng: img.Longitude,
-				Images:    []string{img.OriginalPath},
-			})
+		if result.Error != nil {
+			errorCount++
+			app.safeLog(fmt.Sprintf("Warning: Could not extract info from %s: %v\n",
+				filepath.Base(result.Info.OriginalPath), result.Error))
+		} else {
+			imageInfos = append(imageInfos, result.Info)
 		}
 	}
 
-	return clusters
+	if errorCount > 0 {
+		app.safeLog(fmt.Sprintf("Batch completed with %d errors\n", errorCount))
+	}
+
+	return imageInfos
 }
 
-func (app *App) calculateDistance(lat1, lng1, lat2, lng2 float64) float64 {
-	// Simple Euclidean distance for clustering (good enough for small areas)
-	return math.Sqrt(math.Pow(lat1-lat2, 2) + math.Pow(lng1-lng2, 2))
-}
 
 func (app *App) findMediaFiles(root string) ([]string, error) {
 	var mediaFiles []string
@@ -418,11 +690,7 @@ func (app *App) findMediaFiles(root string) ([]string, error) {
 		".avi":  true, // Audio Video Interleave
 		".mkv":  true, // Matroska Video
 		".wmv":  true, // Windows Media Video
-		".flv":  true, // Flash Video
 		".webm": true, // WebM Video
-		".3gp":  true, // 3GPP Video
-		".mts":  true, // AVCHD Video
-		".m2ts": true, // Blu-ray Video
 	}
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -634,11 +902,11 @@ func (app *App) formatLocation(lat, long float64) string {
 }
 
 func (app *App) createFolderStructure(baseFolder string, info *ImageInfo) string {
-	year := info.Date.Format("2006")
-	monthDay := info.Date.Format("01-02")
+	// Format as month-day-year for better sorting and no intermediate year folders
+	monthDayYear := info.Date.Format("01-02-2006")
 
-	// Changed folder structure: location first, then date
-	folderPath := filepath.Join(baseFolder, info.Location, year, monthDay)
+	// Folder structure: location/month-day-year
+	folderPath := filepath.Join(baseFolder, info.Location, monthDayYear)
 
 	if err := os.MkdirAll(folderPath, 0755); err != nil {
 		log.Printf("Warning: Could not create directory %s: %v", folderPath, err)
@@ -867,68 +1135,6 @@ func setupExifTool() {
 	exiftoolPath = ""
 }
 
-// processFilesParallel processes media files using a worker pool for concurrent processing
-func (app *App) processFilesParallel(mediaFiles []string) []*ImageInfo {
-	if len(mediaFiles) == 0 {
-		return nil
-	}
-
-	// Create worker pool
-	workerPool := &WorkerPool{
-		WorkerCount: app.workerCount,
-		Jobs:        make(chan string, len(mediaFiles)),
-		Results:     make(chan ProcessingResult, len(mediaFiles)),
-	}
-
-	// Start workers
-	for i := 0; i < workerPool.WorkerCount; i++ {
-		workerPool.wg.Add(1)
-		go func() {
-			app.worker(workerPool)
-		}()
-	}
-
-	// Send jobs to workers
-	go func() {
-		for _, mediaFile := range mediaFiles {
-			workerPool.Jobs <- mediaFile
-		}
-		close(workerPool.Jobs)
-	}()
-
-	// Collect results
-	var imageInfos []*ImageInfo
-	var processedCount int
-	var errorCount int
-
-	for i := 0; i < len(mediaFiles); i++ {
-		result := <-workerPool.Results
-		processedCount++
-
-		if result.Error != nil {
-			errorCount++
-			app.safeLog(fmt.Sprintf("Warning: Could not extract info from %s: %v\n",
-				filepath.Base(result.Info.OriginalPath), result.Error))
-		} else {
-			imageInfos = append(imageInfos, result.Info)
-		}
-
-		// Update progress (first 70% for processing)
-		progress := float64(processedCount) / float64(len(mediaFiles)) * 0.7
-		app.progressBar.SetValue(progress)
-	}
-
-	// Wait for all workers to finish
-	workerPool.wg.Wait()
-	close(workerPool.Results)
-
-	if errorCount > 0 {
-		app.safeLog(fmt.Sprintf("Completed processing with %d errors\n", errorCount))
-	}
-
-	return imageInfos
-}
-
 // worker processes media files from the jobs channel
 func (app *App) worker(pool *WorkerPool) {
 	defer pool.wg.Done()
@@ -952,12 +1158,7 @@ func (app *App) worker(pool *WorkerPool) {
 	}
 }
 
-// safeLog adds a log message in a thread-safe manner
-func (app *App) safeLog(message string) {
-	app.logMutex.Lock()
-	defer app.logMutex.Unlock()
-	app.logText.SetText(app.logText.Text + message)
-}
+
 
 // openFileExplorer opens the native file explorer to the specified folder
 func (app *App) openFileExplorer(folderPath string) {
@@ -993,50 +1194,8 @@ func (app *App) openFileExplorer(folderPath string) {
 	}
 }
 
-// mergeLocationClusters merges new location clusters with existing ones, combining clusters that are close together
-func (app *App) mergeLocationClusters(existingClusters, newClusters []LocationCluster) []LocationCluster {
-	result := make([]LocationCluster, len(existingClusters))
-	copy(result, existingClusters)
-
-	for _, newCluster := range newClusters {
-		merged := false
-
-		// Try to merge with existing clusters
-		for i := range result {
-			if result[i].Name == "No-Location" && newCluster.Name == "No-Location" {
-				// Merge no-location clusters
-				result[i].Images = append(result[i].Images, newCluster.Images...)
-				merged = true
-				break
-			} else if result[i].Name != "No-Location" && newCluster.Name != "No-Location" {
-				// Check if clusters are close enough to merge
-				distance := app.calculateDistance(
-					newCluster.CenterLat, newCluster.CenterLng,
-					result[i].CenterLat, result[i].CenterLng,
-				)
-				if distance <= app.locationSensitivity {
-					// Merge clusters
-					totalImages := len(result[i].Images) + len(newCluster.Images)
-					result[i].CenterLat = (result[i].CenterLat*float64(len(result[i].Images)) + newCluster.CenterLat*float64(len(newCluster.Images))) / float64(totalImages)
-					result[i].CenterLng = (result[i].CenterLng*float64(len(result[i].Images)) + newCluster.CenterLng*float64(len(newCluster.Images))) / float64(totalImages)
-					result[i].Images = append(result[i].Images, newCluster.Images...)
-					merged = true
-					break
-				}
-			}
-		}
-
-		// If not merged, add as new cluster
-		if !merged {
-			result = append(result, newCluster)
-		}
-	}
-
-	return result
-}
-
 // organizeByLocationClusters processes each location cluster and copies files to their destinations
-func (app *App) organizeByLocationClusters(locationClusters []LocationCluster, totalFiles int) {
+func (app *App) organizeByLocationClusters(locationClusters []LocationCluster) {
 	for _, cluster := range locationClusters {
 		app.safeLog(fmt.Sprintf("Processing location cluster: %s (%d files)\n", cluster.Name, len(cluster.Images)))
 
