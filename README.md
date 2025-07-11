@@ -30,7 +30,7 @@ A high-performance desktop application built with Go and Fyne that intelligently
 - **Memory Management**: Automatic cleanup and garbage collection for large datasets
 - **Batch Processing**: Configurable batch sizes (10-500 files) for optimal memory usage
 
-### 🎨 User Experience
+### 🎨 User Interface
 
 - **Enhanced Log Viewer**: Large, readable log area with timestamps and progress tracking
 - **Real-time Progress**: Thread-safe progress tracking with detailed status updates
@@ -168,7 +168,7 @@ The application uses multiple intelligent methods to determine media file dates:
 - Video metadata from creation date fields
 - Actual capture/creation time from camera/device
 
-### 2. Filename Timestamp (Smart Fallback)
+### 2. Filename Timestamp
 
 Supports various filename patterns:
 
@@ -334,7 +334,7 @@ Contributions welcome! Areas for improvement:
 
 ## 📄 License
 
-Open source project. Feel free to use, modify, and distribute.
+[MIT License](./LICENSE) - Open source project. Feel free to use, modify, and distribute.
 
 ---
 
